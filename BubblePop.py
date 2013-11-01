@@ -2,6 +2,39 @@ import sys, pygame
 from pygame.locals import *
 
 #----------------------------------------------------------
+# BPSprite class
+#----------------------------------------------------------
+class BPSprite(object):
+	"""
+		Basic sprite class. Sprites handle their own
+		animations. Animations are handled as simple
+		actions in a queue. Only the current action will
+		be processed at any given time unless you force
+		other actions to be blended with the current
+		action.
+	"""
+	context = None
+	pos = None
+	imgObj = []
+	curImg = None
+
+	def __init__(self, context, pos, imgObj, curImg):
+		"""
+			init() method
+			
+			Pass in the initial position of the object
+			as a tuple, its images as a list, and the
+			current img frame.
+		"""
+		self.context = context
+		self.pos = pos
+		self.imgObj = img
+		self.curImg = curImg
+		
+	def draw(self):
+		self.context['surfDisp'].blit(imgObj[curImg], pos)
+	
+#----------------------------------------------------------
 # BPController class
 #----------------------------------------------------------
 class BPController(object):
@@ -110,6 +143,7 @@ class BPGameplayController(BPController):
 	imgArrows = []
 	imgBG = None
 	imgHUDArrows = []
+	sprites = []
 	
 	ARROW_LEFT = 0
 	ARROW_DOWN = 1
@@ -135,6 +169,11 @@ class BPGameplayController(BPController):
 			self.context['surfDisp'].blit(
 				self.imgHUDArrows[i], 
 				(self.HUD_ARROW_START_POS['x'] + (i * self.IMG_ARROW_SIZE['width']) + (i * self.ARROW_COLUMN_PAD), self.HUD_ARROW_START_POS['y']))
+				
+		self.context['surfDisp'].blit(self.imgArrows[0][0][3], (352, 250))
+		self.context['surfDisp'].blit(self.imgArrows[0][1][0], (417, 300))
+		self.context['surfDisp'].blit(self.imgArrows[0][2][1], (482, 50))
+		self.context['surfDisp'].blit(self.imgArrows[0][3][2], (547, 400))
 
 	def start(self):
 		# Load the level data
@@ -142,9 +181,19 @@ class BPGameplayController(BPController):
 		
 		# Load the images
 		self.imgBG = pygame.image.load('bg_gameplay.jpg').convert()
-		for i in range(self.NUM_ARROW_DIRECTIONS):	
-			self.imgHUDArrows.append(pygame.image.load('hud_arrow_{0}.png'.format(i)).convert_alpha())
 		
+		for i in range(self.NUM_ARROW_DIRECTIONS):	# HUD arrows
+			self.imgHUDArrows.append(pygame.image.load('arrow_hud_{0}.png'.format(i)).convert_alpha())
+			
+		for i in range(self.NUM_ARROW_TYPES):		# Gameplay arrows
+			self.imgArrows.append([])
+			for j in range(self.NUM_ARROW_DIRECTIONS):
+				self.imgArrows[i].append([])
+				for k in range(self.NUM_ARROW_STATES):
+					self.imgArrows[i][j].append(
+						pygame.image.load('arrow_{0}_{1}_{2}.png'.format(i, j, k)).convert_alpha())
+		
+		# Start the music
 		if self.context['musicEnabled'] == True:
 			self.context['musicObj'].play()
 			
