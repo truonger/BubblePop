@@ -79,6 +79,10 @@ class BPSprite(object):
 			self.pos = (tx, ty)
 			if percElapsed >= 1:
 				self.actions.remove(action)
+				self.handleActionDone(action)
+				
+	def handleActionDone(self, action):
+		pass
 			
 	def update(self):
 		"""
@@ -200,19 +204,22 @@ class BPGameplayController(BPController):
 	imgBG = None
 	imgHUDArrows = []
 	sprites = []
+	keystrokes = []
 	
-	ARROW_LEFT = 0
-	ARROW_DOWN = 1
-	ARROW_UP = 2
-	ARROW_RIGHT = 3
-	
-	NUM_ARROW_DIRECTIONS = 4	# Left, Down, Up, Right
-	NUM_ARROW_TYPES = 4			# Green, Orange, Pink, Blue
-	NUM_ARROW_STATES = 4		# No fill, 1-bar fill, 2-bar fill, 3-bar fill
+	KEYS = [K_j, K_k, K_i, K_l]		# Using ijkl as the keypad (bigger keys, easier to press)
+	KEY_QUIT_RECORDING = K_SPACE	# Stops a recording session
+
+	NUM_ARROW_DIRECTIONS = 4		# Left, Down, Up, Right
+	NUM_ARROW_TYPES = 4				# Green, Orange, Pink, Blue
+	NUM_ARROW_STATES = 4			# No fill, 1-bar fill, 2-bar fill, 3-bar fill
 	
 	IMG_ARROW_SIZE = { 'width':60, 'height':60 }	# Dimensions of the arrow images
 	HUD_ARROW_START_POS = { 'x':352, 'y':50 }		# Start position for the HUD arrows
 	ARROW_COLUMN_PAD = 5
+	ARROW_TIMING_FILE = 'bubble_pop_arrow_timings.txt'	# File for arrow timings
+	
+	#--- RECORDING MODE ---#
+	RECORDING_MODE = True
 	
 	def __init__(self, parent, context):
 		BPController.__init__(self, parent, context)
@@ -232,9 +239,6 @@ class BPGameplayController(BPController):
 		pass
 
 	def start(self):
-		# Load the level data
-		self.levelData.append([5, 5, self.ARROW_LEFT]);
-		
 		# Load the images
 		self.imgBG = pygame.image.load('bg_gameplay.jpg').convert()
 		
@@ -253,6 +257,7 @@ class BPGameplayController(BPController):
 		if self.context['musicEnabled'] == True:
 			self.context['musicObj'].play()
 
+		self.keystrokes = []
 		self.context['timeLevelStart'] = time.time()
 		
 		arrowSprite = BPSprite(self.context, (352, 540), self.imgArrows[0][0], 0)
@@ -272,8 +277,35 @@ class BPGameplayController(BPController):
 		
 		# Draw all the elements
 		self.drawBG()
-		self.drawSprites()
+		if self.RECORDING_MODE == False:
+			self.drawSprites()
 		self.drawHUD()
+		
+	def recordKeys(self, event):
+		if self.RECORDING_MODE == False: return
+		if event.type not in (KEYDOWN, KEYUP): return
+		
+		if event.key in self.KEYS:
+			keyIndex = self.KEYS.index(event.key)
+			eventTime = time.time() - self.context['timeLevelStart']
+			if event.type == KEYDOWN:
+				self.keystrokes.append(
+					{	
+						'down':eventTime,
+						'key':keyIndex
+					})
+			elif event.type == KEYUP:
+				for keystroke in self.keystrokes:
+					if keystroke['key'] == keyIndex and 'up' not in keystroke.keys():
+						keystroke['up'] = eventTime
+		elif event.key == self.KEY_QUIT_RECORDING:
+			f = open(self.ARROW_TIMING_FILE, 'w')
+			for keystroke in self.keystrokes:
+				f.write('{0}\t{1}\t{2}\n'.format(keystroke['down'], keystroke['up'], keystroke['key']))
+			f.close()
+			
+	def handleEvent(self, event):
+		self.recordKeys(event)
 		
 #----------------------------------------------------------
 # BPGame class
