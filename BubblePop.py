@@ -16,14 +16,22 @@ class BPSprite(object):
 	imgObj = []
 	curImg = None
 	actions = []
-
+	terminated = False
+	
+	# COMMON
 	ACTION_IDENTIFIER = "action"			# action identifier
-	ACTION_POSITION = "position"			# position action
-	ACTION_POSITION_TARGET = "pos_target"	# target position
-	ACTION_POSITION_ORIGIN = "pos_origin"	# origin position
 	ACTION_START_TIME = "start_time"		# start_time of action
 	ACTION_DURATION = "duration"			# in seconds
 	ACTION_BLEND = "blend"					# blend with current actions
+	
+	# POSITION
+	ACTION_POSITION = "position"			# position action
+	ACTION_POSITION_TARGET = "pos_target"	# target position
+	ACTION_POSITION_ORIGIN = "pos_origin"	# origin position
+	
+	# TERMINATE
+	ACTION_TERMINATE = "terminate"			# terminate action
+	ACTION_TERMINATE_DELEGATE = "delegate"	# terminate delegate (passes self as param)
 	
 	def __init__(self, context, pos, imgObj, curImg):
 		"""
@@ -38,8 +46,10 @@ class BPSprite(object):
 		self.imgObj = imgObj
 		self.curImg = curImg
 		self.actions = []
+		self.terminated = False
 		
 	def draw(self):
+		if self.terminated == True: return
 		self.context['surfDisp'].blit(self.imgObj[self.curImg], self.pos)
 		
 	def queueAction(self, action):
@@ -47,6 +57,8 @@ class BPSprite(object):
 			Pushes an action into the queue in sorted order.
 			Pass in a dictionary for the action parameter.
 		"""
+		if self.terminated == True: return
+		
 		# Default values for actions
 		if self.ACTION_START_TIME not in action.keys():
 			action[self.ACTION_START_TIME] = time.time()
@@ -58,19 +70,22 @@ class BPSprite(object):
 			action[self.ACTION_DURATION] = 0
 
 		# Insert the action in sorted order according to start time
-		if len(self.actions) == 0:
+		inserted = False
+		for i in range(len(self.actions)):
+			if action[self.ACTION_START_TIME] < self.actions[i][self.ACTION_START_TIME]:
+				self.actions.insert(i, action)
+				inserted = True
+				break
+		if inserted == False: 
 			self.actions.append(action)
-		else:
-			for i in range(len(self.actions)):
-				if action[self.ACTION_START_TIME] < self.actions[i][self.ACTION_START_TIME]:
-					self.actions.insert(i, action)
-					break
 		
 	def handleAction(self, action):
 		"""
 			All possible actions for this class are dealt with 
 			here
 		"""
+		if self.terminated == True: return
+		
 		if action[self.ACTION_IDENTIFIER] == self.ACTION_POSITION:
 			elapsed = time.time() - action[self.ACTION_START_TIME]
 			percElapsed = elapsed / action[self.ACTION_DURATION]
@@ -81,18 +96,22 @@ class BPSprite(object):
 			self.pos = (tx, ty)
 			if percElapsed >= 1:
 				self.actions.remove(action)
-				self.handleActionDone(action)
-				
-	def handleActionDone(self, action):
-		pass
+		elif action[self.ACTION_IDENTIFIER] == self.ACTION_TERMINATE:
+			print("Terminating!")
+			self.terminated = True
+			if self.ACTION_TERMINATE_DELEGATE in action.keys():
+				action[self.ACTION_TERMINATE_DELEGATE](self)
 			
 	def update(self):
 		"""
 			Update the sprite based on all the actions in 
 			the queue. 
 		"""
+		if self.terminated == True: return
+		
 		for action in list(self.actions):
-			if (action == self.actions[0] or action[self.ACTION_BLEND] == True) and action[self.ACTION_START_TIME] <= time.time():
+			if time.time() >= action[self.ACTION_START_TIME] and (action == self.actions[0] or 
+				action[self.ACTION_BLEND] == True or action[self.ACTION_IDENTIFIER] == self.ACTION_TERMINATE):
 				self.handleAction(action)
 		
 	
@@ -249,6 +268,9 @@ class BPGameplayController(BPController):
 	def drawSprites(self):
 		for sprite in self.sprites:
 			sprite.draw()
+			
+	def removeSprite(self, sprite):
+		self.sprites.remove(sprite)
 		
 	def drawHUD(self):			
 		pass
@@ -310,11 +332,17 @@ class BPGameplayController(BPController):
 					self.context, 
 					(colPosX, startY),
 					self.imgArrows[self.arrowType][curKey], 0)
-				arrowSprite.queueAction(
+				arrowSprite.queueAction(	# Animate past top of screen
 					{	
 						BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_POSITION,
 						BPSprite.ACTION_POSITION_TARGET:(colPosX, -1 * imgHeight),
 						BPSprite.ACTION_DURATION:duration
+					})
+				arrowSprite.queueAction(	# Terminate
+					{
+						BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_TERMINATE,
+						BPSprite.ACTION_TERMINATE_DELEGATE:self.removeSprite,
+						BPSprite.ACTION_START_TIME:time.time() + duration
 					})
 				self.sprites.append(arrowSprite)
 				self.spawned.append(arrow)
@@ -324,7 +352,7 @@ class BPGameplayController(BPController):
 		
 		# Clear the display surface and update the sprites
 		self.context['surfDisp'].fill((0, 0, 0))
-		for sprite in self.sprites:
+		for sprite in list(self.sprites):
 			sprite.update()
 		
 		# Draw all the elements
