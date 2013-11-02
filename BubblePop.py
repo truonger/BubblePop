@@ -37,6 +37,7 @@ class BPSprite(object):
 		self.pos = pos
 		self.imgObj = imgObj
 		self.curImg = curImg
+		self.actions = []
 		
 	def draw(self):
 		self.context['surfDisp'].blit(self.imgObj[self.curImg], self.pos)
@@ -55,14 +56,15 @@ class BPSprite(object):
 			action[self.ACTION_POSITION_ORIGIN] = self.pos
 		if self.ACTION_DURATION not in action.keys():
 			action[self.ACTION_DURATION] = 0
-			
+
 		# Insert the action in sorted order according to start time
 		if len(self.actions) == 0:
 			self.actions.append(action)
 		else:
-			for i in len(self.actions):
+			for i in range(len(self.actions)):
 				if action[self.ACTION_START_TIME] < self.actions[i][self.ACTION_START_TIME]:
 					self.actions.insert(i, action)
+					break
 		
 	def handleAction(self, action):
 		"""
@@ -89,9 +91,9 @@ class BPSprite(object):
 			Update the sprite based on all the actions in 
 			the queue. 
 		"""
-		for i in range(len(self.actions)):
-			if (i == 0 or self.actions[i][self.ACTION_BLEND] == TRUE) and self.actions[i][self.ACTION_START_TIME] <= time.time():
-				self.handleAction(self.actions[i])
+		for action in list(self.actions):
+			if (action == self.actions[0] or action[self.ACTION_BLEND] == True) and action[self.ACTION_START_TIME] <= time.time():
+				self.handleAction(action)
 		
 	
 #----------------------------------------------------------
@@ -129,6 +131,9 @@ class BPController(object):
 	def __init__(self, parent, context):
 		self.parent = parent
 		self.context = context
+		self.prevState = None
+		self.state = None
+		self.child = None
 
 	#--- Be careful about overriding methods in this section
 	
@@ -205,6 +210,9 @@ class BPGameplayController(BPController):
 	imgHUDArrows = []
 	sprites = []
 	keystrokes = []
+	arrows = []
+	spawned = []
+	arrowType = 0
 	
 	KEYS = [K_j, K_k, K_i, K_l]		# Using ijkl as the keypad (bigger keys, easier to press)
 	KEY_QUIT_RECORDING = K_SPACE	# Stops a recording session
@@ -217,19 +225,26 @@ class BPGameplayController(BPController):
 	HUD_ARROW_START_POS = { 'x':352, 'y':50 }		# Start position for the HUD arrows
 	ARROW_COLUMN_PAD = 5
 	ARROW_TIMING_FILE = 'bubble_pop_arrow_timings.txt'	# File for arrow timings
+	ARROW_TIMING_KEY_DOWN = 'down'	# Dictionary key
+	ARROW_TIMING_KEY_UP = 'up'		# Dictionary key
+	ARROW_TIMING_KEY_KEY = 'key'	# Dictionary key
+	ARROW_TIME_BOTTOM_TO_TOP = 3	# Time for arrow to go from bottom of screen to top 
 	
 	#--- RECORDING MODE ---#
-	RECORDING_MODE = True
+	RECORDING_MODE = False
 	
 	def __init__(self, parent, context):
 		BPController.__init__(self, parent, context)
+		
+	def getColPosX(self, col):
+		return self.HUD_ARROW_START_POS['x'] + (col * self.IMG_ARROW_SIZE['width']) + (col * self.ARROW_COLUMN_PAD)
 		
 	def drawBG(self):
 		self.context['surfDisp'].blit(self.imgBG, (0, 0))
 		for i in range(self.NUM_ARROW_DIRECTIONS):
 			self.context['surfDisp'].blit(
 				self.imgHUDArrows[i], 
-				(self.HUD_ARROW_START_POS['x'] + (i * self.IMG_ARROW_SIZE['width']) + (i * self.ARROW_COLUMN_PAD), self.HUD_ARROW_START_POS['y']))
+				(self.getColPosX(i), self.HUD_ARROW_START_POS['y']))
 		
 	def drawSprites(self):
 		for sprite in self.sprites:
@@ -239,6 +254,17 @@ class BPGameplayController(BPController):
 		pass
 
 	def start(self):
+		# Load the level data
+		timingKeys = [self.ARROW_TIMING_KEY_DOWN, self.ARROW_TIMING_KEY_UP, self.ARROW_TIMING_KEY_KEY]
+		with open(self.ARROW_TIMING_FILE, 'r') as f:
+			for line in f:
+				timingValues = line.split('\t')
+				timingValues = [float(i) for i in timingValues]
+				arrow = dict(zip(timingKeys, timingValues))
+				arrow[self.ARROW_TIMING_KEY_KEY] = int(arrow[self.ARROW_TIMING_KEY_KEY])
+				self.arrows.append(arrow)
+				
+				
 		# Load the images
 		self.imgBG = pygame.image.load('bg_gameplay.jpg').convert()
 		
@@ -259,17 +285,43 @@ class BPGameplayController(BPController):
 
 		self.keystrokes = []
 		self.context['timeLevelStart'] = time.time()
-		
-		arrowSprite = BPSprite(self.context, (352, 540), self.imgArrows[0][0], 0)
-		arrowSprite.queueAction(
-			{	
-				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_POSITION,
-				BPSprite.ACTION_POSITION_TARGET:(352, -60),
-				BPSprite.ACTION_DURATION:3
-			})
-		self.sprites.append(arrowSprite)
 			
 	def handleUpdate(self):
+		# Spawn arrows
+		imgHeight = self.IMG_ARROW_SIZE['height']
+		windowHeight = self.context['windowSize']['height']
+		pixelsPerSecond =  (windowHeight + imgHeight) / self.ARROW_TIME_BOTTOM_TO_TOP
+		secondsPerPixel = 1 / pixelsPerSecond
+		pixelsToHitZone = windowHeight - self.HUD_ARROW_START_POS['y']
+		timeToHitZone = pixelsToHitZone * secondsPerPixel
+		curTime = time.time() - self.context['timeLevelStart']
+		unspawned = []
+		
+		for arrow in self.arrows:	# check for arrows to spawn
+			keyTime = arrow[self.ARROW_TIMING_KEY_DOWN]
+			spawnTime = keyTime - timeToHitZone
+			if curTime >= spawnTime:	# if it's time to spawn this arrow
+				curKey = arrow[self.ARROW_TIMING_KEY_KEY]
+				colPosX = self.getColPosX(curKey)
+				timeAdjustment = curTime - spawnTime
+				duration = self.ARROW_TIME_BOTTOM_TO_TOP - timeAdjustment
+				startY = windowHeight - (pixelsPerSecond * timeAdjustment)
+				arrowSprite = BPSprite(
+					self.context, 
+					(colPosX, startY),
+					self.imgArrows[self.arrowType][curKey], 0)
+				arrowSprite.queueAction(
+					{	
+						BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_POSITION,
+						BPSprite.ACTION_POSITION_TARGET:(colPosX, -1 * imgHeight),
+						BPSprite.ACTION_DURATION:duration
+					})
+				self.sprites.append(arrowSprite)
+				self.spawned.append(arrow)
+			else:
+				unspawned.append(arrow)
+		self.arrows = unspawned
+		
 		# Clear the display surface and update the sprites
 		self.context['surfDisp'].fill((0, 0, 0))
 		for sprite in self.sprites:
@@ -291,18 +343,18 @@ class BPGameplayController(BPController):
 			if event.type == KEYDOWN:
 				self.keystrokes.append(
 					{	
-						'down':eventTime,
-						'key':keyIndex
+						self.ARROW_TIMING_KEY_DOWN:eventTime,
+						self.ARROW_TIMING_KEY_KEY:keyIndex
 					})
 			elif event.type == KEYUP:
 				for keystroke in self.keystrokes:
-					if keystroke['key'] == keyIndex and 'up' not in keystroke.keys():
-						keystroke['up'] = eventTime
+					if keystroke[self.ARROW_TIMING_KEY_KEY] == keyIndex and self.ARROW_TIMING_KEY_UP not in keystroke.keys():
+						keystroke[self.ARROW_TIMING_KEY_UP] = eventTime
 		elif event.key == self.KEY_QUIT_RECORDING:
-			f = open(self.ARROW_TIMING_FILE, 'w')
-			for keystroke in self.keystrokes:
-				f.write('{0}\t{1}\t{2}\n'.format(keystroke['down'], keystroke['up'], keystroke['key']))
-			f.close()
+			with open(self.ARROW_TIMING_FILE, 'w') as f:
+				for keystroke in self.keystrokes:
+					f.write('{0}\t{1}\t{2}\n'.format(
+						keystroke[self.ARROW_TIMING_KEY_DOWN], keystroke[self.ARROW_TIMING_KEY_UP], keystroke[self.ARROW_TIMING_KEY_KEY]))
 			
 	def handleEvent(self, event):
 		self.recordKeys(event)
