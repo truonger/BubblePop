@@ -1,4 +1,4 @@
-import sys, pygame
+import sys, pygame, time
 from pygame.locals import *
 
 #----------------------------------------------------------
@@ -8,16 +8,23 @@ class BPSprite(object):
 	"""
 		Basic sprite class. Sprites handle their own
 		animations. Animations are handled as simple
-		actions in a queue. Only the current action will
-		be processed at any given time unless you force
-		other actions to be blended with the current
-		action.
+		actions in a queue and can be blended together.
+		All tweens are linear interpolations (no easing).
 	"""
 	context = None
 	pos = None
 	imgObj = []
 	curImg = None
+	actions = []
 
+	ACTION_IDENTIFIER = "action"			# action identifier
+	ACTION_POSITION = "position"			# position action
+	ACTION_POSITION_TARGET = "pos_target"	# target position
+	ACTION_POSITION_ORIGIN = "pos_origin"	# origin position
+	ACTION_START_TIME = "start_time"		# start_time of action
+	ACTION_DURATION = "duration"			# in seconds
+	ACTION_BLEND = "blend"					# blend with current actions
+	
 	def __init__(self, context, pos, imgObj, curImg):
 		"""
 			init() method
@@ -28,11 +35,60 @@ class BPSprite(object):
 		"""
 		self.context = context
 		self.pos = pos
-		self.imgObj = img
+		self.imgObj = imgObj
 		self.curImg = curImg
 		
 	def draw(self):
-		self.context['surfDisp'].blit(imgObj[curImg], pos)
+		self.context['surfDisp'].blit(self.imgObj[self.curImg], self.pos)
+		
+	def queueAction(self, action):
+		"""
+			Pushes an action into the queue in sorted order.
+			Pass in a dictionary for the action parameter.
+		"""
+		# Default values for actions
+		if self.ACTION_START_TIME not in action.keys():
+			action[self.ACTION_START_TIME] = time.time()
+		if self.ACTION_BLEND not in action.keys():
+			action[self.ACTION_BLEND] = False
+		if self.ACTION_POSITION_ORIGIN not in action.keys():
+			action[self.ACTION_POSITION_ORIGIN] = self.pos
+		if self.ACTION_DURATION not in action.keys():
+			action[self.ACTION_DURATION] = 0
+			
+		# Insert the action in sorted order according to start time
+		if len(self.actions) == 0:
+			self.actions.append(action)
+		else:
+			for i in len(self.actions):
+				if action[self.ACTION_START_TIME] < self.actions[i][self.ACTION_START_TIME]:
+					self.actions.insert(i, action)
+		
+	def handleAction(self, action):
+		"""
+			All possible actions for this class are dealt with 
+			here
+		"""
+		if action[self.ACTION_IDENTIFIER] == self.ACTION_POSITION:
+			elapsed = time.time() - action[self.ACTION_START_TIME]
+			percElapsed = elapsed / action[self.ACTION_DURATION]
+			dx = action[self.ACTION_POSITION_TARGET][0] - action[self.ACTION_POSITION_ORIGIN][0]
+			dy = action[self.ACTION_POSITION_TARGET][1] - action[self.ACTION_POSITION_ORIGIN][1]
+			tx = action[self.ACTION_POSITION_ORIGIN][0] + (percElapsed * dx)
+			ty = action[self.ACTION_POSITION_ORIGIN][1] + (percElapsed * dy)
+			self.pos = (tx, ty)
+			if percElapsed >= 1:
+				self.actions.remove(action)
+			
+	def update(self):
+		"""
+			Update the sprite based on all the actions in 
+			the queue. 
+		"""
+		for i in range(len(self.actions)):
+			if (i == 0 or self.actions[i][self.ACTION_BLEND] == TRUE) and self.actions[i][self.ACTION_START_TIME] <= time.time():
+				self.handleAction(self.actions[i])
+		
 	
 #----------------------------------------------------------
 # BPController class
@@ -163,17 +219,17 @@ class BPGameplayController(BPController):
 		
 	def drawBG(self):
 		self.context['surfDisp'].blit(self.imgBG, (0, 0))
-		
-	def drawHUD(self):
 		for i in range(self.NUM_ARROW_DIRECTIONS):
 			self.context['surfDisp'].blit(
 				self.imgHUDArrows[i], 
 				(self.HUD_ARROW_START_POS['x'] + (i * self.IMG_ARROW_SIZE['width']) + (i * self.ARROW_COLUMN_PAD), self.HUD_ARROW_START_POS['y']))
-				
-		self.context['surfDisp'].blit(self.imgArrows[0][0][3], (352, 250))
-		self.context['surfDisp'].blit(self.imgArrows[0][1][0], (417, 300))
-		self.context['surfDisp'].blit(self.imgArrows[0][2][1], (482, 50))
-		self.context['surfDisp'].blit(self.imgArrows[0][3][2], (547, 400))
+		
+	def drawSprites(self):
+		for sprite in self.sprites:
+			sprite.draw()
+		
+	def drawHUD(self):			
+		pass
 
 	def start(self):
 		# Load the level data
@@ -196,13 +252,27 @@ class BPGameplayController(BPController):
 		# Start the music
 		if self.context['musicEnabled'] == True:
 			self.context['musicObj'].play()
+
+		self.context['timeLevelStart'] = time.time()
+		
+		arrowSprite = BPSprite(self.context, (352, 540), self.imgArrows[0][0], 0)
+		arrowSprite.queueAction(
+			{	
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_POSITION,
+				BPSprite.ACTION_POSITION_TARGET:(352, -60),
+				BPSprite.ACTION_DURATION:3
+			})
+		self.sprites.append(arrowSprite)
 			
 	def handleUpdate(self):
-		# Clear the display surface
+		# Clear the display surface and update the sprites
 		self.context['surfDisp'].fill((0, 0, 0))
+		for sprite in self.sprites:
+			sprite.update()
 		
 		# Draw all the elements
 		self.drawBG()
+		self.drawSprites()
 		self.drawHUD()
 		
 #----------------------------------------------------------
@@ -256,7 +326,7 @@ def main():
 	
 	bpContext = {}
 	bpContext['pygame'] = pygame
-	bpContext['FPS'] = 30 
+	bpContext['FPS'] = 60 
 	bpContext['windowSize'] = { 'width':960, 'height':540 }
 	bpContext['musicFile'] = 'bubble_pop.wav'
 	bpContext['title'] = 'Bubble Pop!'
