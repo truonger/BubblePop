@@ -1,6 +1,20 @@
 import sys, pygame, time
 from pygame.locals import *
 
+"""
+	BUBBLE POP!
+	by Mike Truong (mike.truong@gmail.com)
+	
+	This is a k-pop clone of DDR. This is my mini-hackathon 
+	project to learn python better for a job interview.
+	
+	LOG:
+		10/31/13 - 11:30 pm -  3:30 am (4 hrs)
+		11/01/13 - 12:00 pm -  8:00 pm (8 hrs)
+		11/02/13 -  8:00 am - 10:30 am (2.5 hrs)
+		11/02/13 -  1:00 pm -  4:00 pm (3 hrs)
+"""
+
 #----------------------------------------------------------
 # BPSprite class
 #----------------------------------------------------------
@@ -17,21 +31,28 @@ class BPSprite(object):
 	curImg = None
 	actions = []
 	terminated = False
+	alpha = 255
+	imgBackup = None
 	
 	# COMMON
 	ACTION_IDENTIFIER = "action"			# action identifier
-	ACTION_START_TIME = "start_time"		# start_time of action
-	ACTION_DURATION = "duration"			# in seconds
-	ACTION_BLEND = "blend"					# blend with current actions
+	ACTION_START_TIME = "start_time"		# start_time of action (defaults to now)
+	ACTION_DURATION = "duration"			# in seconds (defaults to now)
+	ACTION_BLEND = "blend"					# blend with current actions (defaults to False)
 	
 	# POSITION
 	ACTION_POSITION = "position"			# position action
 	ACTION_POSITION_TARGET = "pos_target"	# target position
-	ACTION_POSITION_ORIGIN = "pos_origin"	# origin position
+	ACTION_POSITION_ORIGIN = "pos_origin"	# origin position (defaults to current)
 	
 	# TERMINATE
 	ACTION_TERMINATE = "terminate"			# terminate action
 	ACTION_TERMINATE_DELEGATE = "delegate"	# terminate delegate (passes self as param)
+	
+	# ALPHA
+	ACTION_ALPHA = "alpha"					# alpha animation
+	ACTION_ALPHA_TARGET = "alpha_target"	# target alpha
+	ACTION_ALPHA_ORIGIN = "alpha_origin"	# origin alpha (defaults to current)
 	
 	def __init__(self, context, pos, imgObj, curImg):
 		"""
@@ -47,10 +68,17 @@ class BPSprite(object):
 		self.curImg = curImg
 		self.actions = []
 		self.terminated = False
+		self.alpha = 255
+		self.imgBackup = None
 		
 	def draw(self):
 		if self.terminated == True: return
-		self.context['surfDisp'].blit(self.imgObj[self.curImg], self.pos)
+		
+		# Resolve alpha for the image on a copy of the original image
+		img = self.imgObj[self.curImg].copy()
+		img.fill((0, 0, 0, 255 - self.alpha), None, BLEND_RGBA_SUB)
+		
+		self.context['surfDisp'].blit(img, self.pos)
 		
 	def queueAction(self, action):
 		"""
@@ -68,6 +96,8 @@ class BPSprite(object):
 			action[self.ACTION_POSITION_ORIGIN] = self.pos
 		if self.ACTION_DURATION not in action.keys():
 			action[self.ACTION_DURATION] = 0
+		if self.ACTION_ALPHA_ORIGIN not in action.keys():
+			action[self.ACTION_ALPHA_ORIGIN] = self.alpha
 
 		# Insert the action in sorted order according to start time
 		inserted = False
@@ -86,22 +116,31 @@ class BPSprite(object):
 		"""
 		if self.terminated == True: return
 		
-		if action[self.ACTION_IDENTIFIER] == self.ACTION_POSITION:
-			elapsed = time.time() - action[self.ACTION_START_TIME]
+		elapsed = time.time() - action[self.ACTION_START_TIME]
+		percElapsed = 0
+		if action[self.ACTION_DURATION] == 0:
+			percElapsed = 100
+		else:
 			percElapsed = elapsed / action[self.ACTION_DURATION]
+		
+		if action[self.ACTION_IDENTIFIER] == self.ACTION_POSITION:
 			dx = action[self.ACTION_POSITION_TARGET][0] - action[self.ACTION_POSITION_ORIGIN][0]
 			dy = action[self.ACTION_POSITION_TARGET][1] - action[self.ACTION_POSITION_ORIGIN][1]
 			tx = action[self.ACTION_POSITION_ORIGIN][0] + (percElapsed * dx)
 			ty = action[self.ACTION_POSITION_ORIGIN][1] + (percElapsed * dy)
 			self.pos = (tx, ty)
-			if percElapsed >= 1:
-				self.actions.remove(action)
+		elif action[self.ACTION_IDENTIFIER] == self.ACTION_ALPHA:
+			self.imgObj[self.curImg] = self.imgObj[self.curImg].copy()
+			delta = (action[self.ACTION_ALPHA_TARGET] - action[self.ACTION_ALPHA_ORIGIN]) * percElapsed
+			self.alpha = max(min(action[self.ACTION_ALPHA_ORIGIN] + delta, 255), 0)
 		elif action[self.ACTION_IDENTIFIER] == self.ACTION_TERMINATE:
-			print("Terminating!")
 			self.terminated = True
 			if self.ACTION_TERMINATE_DELEGATE in action.keys():
 				action[self.ACTION_TERMINATE_DELEGATE](self)
-			
+				
+		if percElapsed >= 1:
+			self.actions.remove(action)
+		
 	def update(self):
 		"""
 			Update the sprite based on all the actions in 
@@ -248,6 +287,7 @@ class BPGameplayController(BPController):
 	ARROW_TIMING_KEY_UP = 'up'		# Dictionary key
 	ARROW_TIMING_KEY_KEY = 'key'	# Dictionary key
 	ARROW_TIME_BOTTOM_TO_TOP = 3	# Time for arrow to go from bottom of screen to top 
+	ARROW_FADE_TIME = 0.2			# Time to fade arrow to 0 alpha after past hit zone
 	
 	#--- RECORDING MODE ---#
 	RECORDING_MODE = False
@@ -307,9 +347,8 @@ class BPGameplayController(BPController):
 
 		self.keystrokes = []
 		self.context['timeLevelStart'] = time.time()
-			
-	def handleUpdate(self):
-		# Spawn arrows
+		
+	def spawnArrows(self):
 		imgHeight = self.IMG_ARROW_SIZE['height']
 		windowHeight = self.context['windowSize']['height']
 		pixelsPerSecond =  (windowHeight + imgHeight) / self.ARROW_TIME_BOTTOM_TO_TOP
@@ -338,6 +377,14 @@ class BPGameplayController(BPController):
 						BPSprite.ACTION_POSITION_TARGET:(colPosX, -1 * imgHeight),
 						BPSprite.ACTION_DURATION:duration
 					})
+				arrowSprite.queueAction(	# Fade past hit zone
+					{	
+						BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_ALPHA,
+						BPSprite.ACTION_ALPHA_TARGET:0,
+						BPSprite.ACTION_START_TIME:time.time() + timeToHitZone,
+						BPSprite.ACTION_DURATION:self.ARROW_FADE_TIME,
+						BPSprite.ACTION_BLEND:True
+					})
 				arrowSprite.queueAction(	# Terminate
 					{
 						BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_TERMINATE,
@@ -350,12 +397,15 @@ class BPGameplayController(BPController):
 				unspawned.append(arrow)
 		self.arrows = unspawned
 		
-		# Clear the display surface and update the sprites
-		self.context['surfDisp'].fill((0, 0, 0))
+	def handleUpdate(self):
+		# Spawn
+		self.spawnArrows()
+		
+		# Update
 		for sprite in list(self.sprites):
 			sprite.update()
 		
-		# Draw all the elements
+		# Draw
 		self.drawBG()
 		if self.RECORDING_MODE == False:
 			self.drawSprites()
@@ -442,7 +492,7 @@ def main():
 	bpContext['windowSize'] = { 'width':960, 'height':540 }
 	bpContext['musicFile'] = 'bubble_pop.wav'
 	bpContext['title'] = 'Bubble Pop!'
-	bpContext['musicEnabled'] = True
+	bpContext['musicEnabled'] = False
 	
 	bpContext['clockFPS'] = pygame.time.Clock()
 	bpContext['surfDisp'] = pygame.display.set_mode((bpContext['windowSize']['width'], bpContext['windowSize']['height']))
