@@ -276,14 +276,17 @@ class BPGameplayController(BPController):
 	imgArrows = []
 	imgHUDArrows = []
 	imgTextFlashers = []
+	imgScoreNums = []
 	imgBG = None
 	imgHitFlasher = None
 	imgMissFlasher = None
 	sprites = []
 	flashers = []
+	scoreDigits = []
 	keystrokes = []
 	arrowData = []
 	arrowType = 0
+	score = 0
 	
 	KEYS = [K_j, K_k, K_i, K_l]		# Using ijkl as the keypad (bigger keys, easier to press)
 	KEY_QUIT_RECORDING = K_SPACE	# Stops a recording session
@@ -292,8 +295,8 @@ class BPGameplayController(BPController):
 	NUM_ARROW_TYPES = 4				# Green, Orange, Pink, Blue
 	NUM_ARROW_STATES = 4			# No fill, 1-bar fill, 2-bar fill, 3-bar fill
 	
-	IMG_ARROW_SIZE = { 'width':60, 'height':60 }	# Dimensions of the arrow images
-	HUD_ARROW_START_POS = { 'x':352, 'y':50 }		# Start position for the HUD arrows
+	IMG_ARROW_SIZE = (60, 60)		# Dimensions of the arrow images
+	HUD_ARROW_START_POS = (352, 50)	# Start position for the HUD arrows
 	ARROW_COLUMN_PAD = 5
 	ARROW_TIMING_FILE = 'bubble_pop_arrow_timings.txt'	# File for arrow timings
 	ARROW_TIMING_KEY_DOWN = 'down'	# Dictionary key
@@ -302,15 +305,21 @@ class BPGameplayController(BPController):
 	ARROW_TIME_BOTTOM_TO_TOP = 3	# Time for arrow to go from bottom of screen to top 
 	ARROW_FADE_TIME = 0.2			# Time to fade arrow to 0 alpha after past hit zone
 	
-	HIT_THRESHOLDS = [0.05, 0.1, 0.15]		# Hit thresholds for scoring
+	HIT_THRESHOLDS = (0.05, 0.1, 0.15)		# Hit thresholds for scoring
 	HIT_FLASHER_FADE_TIME = 0.25			# Hit flasher fade time
 	NUM_HIT_TEXT_FLASHERS = 4				# Num hit text flasher images
-	HIT_TEXT_FLASHER_SIZE = { 'width':81, 'height':15 }
+	HIT_TEXT_FLASHER_SIZE = (81, 15)		# Size of hit flasher text images
 	
-	MISS_FLASHER_SIZE = { 'width':269, 'height':49 }
+	MISS_FLASHER_SIZE = (269, 49)
 	MISS_FLASHER_Y = 290					# y-coord for miss flasher
 	MISS_FLASHER_FADE_TIME = 0.5			# miss flasher fade time
 	MISS_FLASHER_INDICATOR = 'miss'			# how we remember which flashers are miss flashers
+	
+	NUM_SCORE_DIGITS = 6					# number of digits in our score
+	SCORE_VALUES = [10, 5, 1]				# score values for each hit threshold
+	SCORE_DIGIT_OFFSET = (10, 10)			# offset from the top right for first score digit
+	SCORE_DIGIT_SIZE = (54, 54)				# size of each score digit image	
+	SCORE_DIGIT_PAD = 5		 
 	
 	#--- RECORDING MODE ---#
 	RECORDING_MODE = False
@@ -321,6 +330,7 @@ class BPGameplayController(BPController):
 		self.imgArrows = []
 		self.imgHUDArrows = []
 		self.imgTextFlashers = []
+		self.imgScoreNums = []
 		self.imgMissFlasher = None
 		self.imgBG = None
 		self.imgHitFlasher = None
@@ -329,16 +339,17 @@ class BPGameplayController(BPController):
 		self.keystrokes = []
 		self.arrowData = []
 		self.arrowType = 0
+		self.score = 0
 		
 	def getColPosX(self, col):
-		return self.HUD_ARROW_START_POS['x'] + (col * self.IMG_ARROW_SIZE['width']) + (col * self.ARROW_COLUMN_PAD)
+		return self.HUD_ARROW_START_POS[0] + (col * self.IMG_ARROW_SIZE[0]) + (col * self.ARROW_COLUMN_PAD)
 		
 	def drawBG(self):
 		self.context['surfDisp'].blit(self.imgBG, (0, 0))
 		for i in range(self.NUM_ARROW_DIRECTIONS):
 			self.context['surfDisp'].blit(
 				self.imgHUDArrows[i], 
-				(self.getColPosX(i), self.HUD_ARROW_START_POS['y']))
+				(self.getColPosX(i), self.HUD_ARROW_START_POS[1]))
 			
 	def removeSprite(self, sprite):
 		self.sprites.remove(sprite)
@@ -346,8 +357,9 @@ class BPGameplayController(BPController):
 	def removeFlasher(self, sprite):
 		self.flashers.remove(sprite)
 		
-	def drawHUD(self):			
-		pass
+	def drawHUD(self):
+		for digit in self.scoreDigits:
+			digit.draw()
 
 	def start(self):
 		# Load the level data
@@ -368,6 +380,8 @@ class BPGameplayController(BPController):
 			self.imgHUDArrows.append(pygame.image.load('arrow_hud_{0}.png'.format(i)).convert_alpha())		
 		for i in range(self.NUM_HIT_TEXT_FLASHERS): # Hit text flashers
 			self.imgTextFlashers.append(pygame.image.load('text_flasher_{0}.png'.format(i)).convert_alpha())
+		for i in range(10): 		# Score digits
+			self.imgScoreNums.append(pygame.image.load('num_{0}.png'.format(i)).convert_alpha())
 		for i in range(self.NUM_ARROW_TYPES):		# Gameplay arrows
 			self.imgArrows.append([])
 			for j in range(self.NUM_ARROW_DIRECTIONS):
@@ -379,6 +393,9 @@ class BPGameplayController(BPController):
 		# Start the music
 		if self.context['musicEnabled'] == True:
 			self.context['musicObj'].play()
+			
+		# Create the score digit sprites
+		self.spawnScoreDigits()
 
 		self.keystrokes = []
 		self.context['timeLevelStart'] = time.time()
@@ -387,12 +404,24 @@ class BPGameplayController(BPController):
 		self.sprites.remove(sprite)
 		self.spawnMissFlasher()
 		
+	def spawnScoreDigits(self):
+		cx = self.context['windowSize'][0] - self.SCORE_DIGIT_OFFSET[0]
+		for i in range(self.NUM_SCORE_DIGITS):
+			cx = cx - self.SCORE_DIGIT_SIZE[0]
+			sprite = BPSprite(
+				self.context, 
+				None,
+				(cx, self.SCORE_DIGIT_OFFSET[1]),
+				self.imgScoreNums)
+			self.scoreDigits.append(sprite)
+			cx = cx - self.SCORE_DIGIT_PAD
+		
 	def spawnArrows(self):
-		imgHeight = self.IMG_ARROW_SIZE['height']
-		windowHeight = self.context['windowSize']['height']
+		imgHeight = self.IMG_ARROW_SIZE[1]
+		windowHeight = self.context['windowSize'][1]
 		pixelsPerSecond =  (windowHeight + imgHeight) / self.ARROW_TIME_BOTTOM_TO_TOP
 		secondsPerPixel = 1 / pixelsPerSecond
-		pixelsToHitZone = windowHeight - self.HUD_ARROW_START_POS['y']
+		pixelsToHitZone = windowHeight - self.HUD_ARROW_START_POS[1]
 		timeToHitZone = pixelsToHitZone * secondsPerPixel
 		curTime = time.time() - self.context['timeLevelStart']
 		unspawned = []
@@ -451,7 +480,7 @@ class BPGameplayController(BPController):
 		sprite = BPSprite(
 			self.context, 
 			None,
-			(self.getColPosX(col), self.HUD_ARROW_START_POS['y']),
+			(self.getColPosX(col), self.HUD_ARROW_START_POS[1]),
 			[self.imgHitFlasher])
 		sprite.queueAction(	# Fade 
 			{	
@@ -469,12 +498,12 @@ class BPGameplayController(BPController):
 		self.flashers.append(sprite)
 		
 		# text sprite
-		xOffset = (self.IMG_ARROW_SIZE['width'] - self.HIT_TEXT_FLASHER_SIZE['width']) / 2
-		yOffset = (self.IMG_ARROW_SIZE['height'] - self.HIT_TEXT_FLASHER_SIZE['height']) / 2
+		xOffset = (self.IMG_ARROW_SIZE[0] - self.HIT_TEXT_FLASHER_SIZE[0]) / 2
+		yOffset = (self.IMG_ARROW_SIZE[1] - self.HIT_TEXT_FLASHER_SIZE[1]) / 2
 		txtSprite = BPSprite(
 			self.context, 
 			None,
-			(self.getColPosX(col) + xOffset, self.HUD_ARROW_START_POS['y'] + yOffset),
+			(self.getColPosX(col) + xOffset, self.HUD_ARROW_START_POS[1] + yOffset),
 			[self.imgTextFlashers[txtIdx]])
 		txtSprite.queueAction(	# Fade 
 			{	
@@ -495,7 +524,7 @@ class BPGameplayController(BPController):
 		sprite = BPSprite(
 			self.context, 
 			self.MISS_FLASHER_INDICATOR,
-			((self.context['windowSize']['width'] / 2) - (self.MISS_FLASHER_SIZE['width'] / 2), self.MISS_FLASHER_Y),
+			((self.context['windowSize'][0] / 2) - (self.MISS_FLASHER_SIZE[0] / 2), self.MISS_FLASHER_Y),
 			[self.imgMissFlasher])
 		sprite.queueAction(	# Fade 
 			{	
@@ -512,15 +541,22 @@ class BPGameplayController(BPController):
 			})
 		self.flashers.append(sprite)
 		
+	def updateScoreDigitSprites(self):
+		for i in range(len(self.scoreDigits)):
+			self.scoreDigits[i].curImg = int(str(self.score).zfill(self.NUM_SCORE_DIGITS)[-1 * (i + 1)])
+		
 	def handleUpdate(self):
 		# Spawn
 		self.spawnArrows()
+		self.updateScoreDigitSprites()
 		
 		# Update
 		for sprite in list(self.sprites):
 			sprite.update()
 		for flasher in list(self.flashers):
 			flasher.update()
+		for digit in self.scoreDigits:
+			digit.update()
 		
 		# Draw
 		self.drawBG()
@@ -570,6 +606,7 @@ class BPGameplayController(BPController):
 					delta = arrowData[self.ARROW_TIMING_KEY_DOWN] - curLevelTime
 					if abs(delta) <= self.HIT_THRESHOLDS[i]:
 						hit = True
+						self.score = min(self.score + self.SCORE_VALUES[i], (10 ** self.NUM_SCORE_DIGITS) - 1)
 						txtIdx = i
 						if i >= 2 and delta < 0: txtIdx = txtIdx + 1
 						self.sprites.pop(0)
@@ -632,13 +669,13 @@ def main():
 	bpContext = {}
 	bpContext['pygame'] = pygame
 	bpContext['FPS'] = 60 
-	bpContext['windowSize'] = { 'width':960, 'height':540 }
+	bpContext['windowSize'] = (960, 540)
 	bpContext['musicFile'] = 'bubble_pop.wav'
 	bpContext['title'] = 'Bubble Pop!'
 	bpContext['musicEnabled'] = True
 	
 	bpContext['clockFPS'] = pygame.time.Clock()
-	bpContext['surfDisp'] = pygame.display.set_mode((bpContext['windowSize']['width'], bpContext['windowSize']['height']))
+	bpContext['surfDisp'] = pygame.display.set_mode((bpContext['windowSize'][0], bpContext['windowSize'][1]))
 	bpContext['fontTitle'] = pygame.font.Font('freesansbold.ttf', 18)
 	bpContext['musicObj'] = pygame.mixer.Sound(bpContext['musicFile'])
 
