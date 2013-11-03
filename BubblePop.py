@@ -12,7 +12,8 @@ from pygame.locals import *
 		10/31/13 - 11:30 pm -  3:30 am (4 hrs)
 		11/01/13 - 12:00 pm -  8:00 pm (8 hrs)
 		11/02/13 -  8:00 am - 10:30 am (2.5 hrs)
-		11/02/13 -  1:00 pm -  4:00 pm (3 hrs)
+		11/02/13 -  1:00 pm -  4:30 pm (3.5 hrs)
+		11/02/13 -  6:30 pm -     ? pm
 """
 
 #----------------------------------------------------------
@@ -26,6 +27,7 @@ class BPSprite(object):
 		All tweens are linear interpolations (no easing).
 	"""
 	context = None
+	data = None
 	pos = None
 	imgObj = []
 	curImg = None
@@ -54,7 +56,11 @@ class BPSprite(object):
 	ACTION_ALPHA_TARGET = "alpha_target"	# target alpha
 	ACTION_ALPHA_ORIGIN = "alpha_origin"	# origin alpha (defaults to current)
 	
-	def __init__(self, context, pos, imgObj, curImg):
+	# CALLBACK
+	ACTION_CALLBACK = "callback"			# callback action
+	ACTION_CALLBACK_FUNCTION = "cb_func"	# callback function
+	
+	def __init__(self, context, data, pos, imgObj, curImg):
 		"""
 			init() method
 			
@@ -63,6 +69,7 @@ class BPSprite(object):
 			current img frame.
 		"""
 		self.context = context
+		self.data = data
 		self.pos = pos
 		self.imgObj = imgObj
 		self.curImg = curImg
@@ -133,6 +140,9 @@ class BPSprite(object):
 			self.imgObj[self.curImg] = self.imgObj[self.curImg].copy()
 			delta = (action[self.ACTION_ALPHA_TARGET] - action[self.ACTION_ALPHA_ORIGIN]) * percElapsed
 			self.alpha = max(min(action[self.ACTION_ALPHA_ORIGIN] + delta, 255), 0)
+		elif action[self.ACTION_IDENTIFIER] == self.ACTION_CALLBACK:
+			if self.ACTION_CALLBACK_FUNCTION in action.keys():
+				action[self.ACTION_CALLBACK_FUNCTION](self)
 		elif action[self.ACTION_IDENTIFIER] == self.ACTION_TERMINATE:
 			self.terminated = True
 			if self.ACTION_TERMINATE_DELEGATE in action.keys():
@@ -269,7 +279,6 @@ class BPGameplayController(BPController):
 	sprites = []
 	keystrokes = []
 	arrows = []
-	spawned = []
 	arrowType = 0
 	
 	KEYS = [K_j, K_k, K_i, K_l]		# Using ijkl as the keypad (bigger keys, easier to press)
@@ -288,6 +297,8 @@ class BPGameplayController(BPController):
 	ARROW_TIMING_KEY_KEY = 'key'	# Dictionary key
 	ARROW_TIME_BOTTOM_TO_TOP = 3	# Time for arrow to go from bottom of screen to top 
 	ARROW_FADE_TIME = 0.2			# Time to fade arrow to 0 alpha after past hit zone
+	
+	HIT_THRESHOLDS = [0.05, 0.1, 0.15 ]		# Hit thresholds for scoring
 	
 	#--- RECORDING MODE ---#
 	RECORDING_MODE = False
@@ -325,8 +336,7 @@ class BPGameplayController(BPController):
 				arrow = dict(zip(timingKeys, timingValues))
 				arrow[self.ARROW_TIMING_KEY_KEY] = int(arrow[self.ARROW_TIMING_KEY_KEY])
 				self.arrows.append(arrow)
-				
-				
+						
 		# Load the images
 		self.imgBG = pygame.image.load('bg_gameplay.jpg').convert()
 		
@@ -347,6 +357,10 @@ class BPGameplayController(BPController):
 
 		self.keystrokes = []
 		self.context['timeLevelStart'] = time.time()
+		
+	def arrowMissDelegate(self, sprite):
+		self.sprites.remove(sprite)
+		# TODO - Play a flasher of some sort
 		
 	def spawnArrows(self):
 		imgHeight = self.IMG_ARROW_SIZE['height']
@@ -369,6 +383,7 @@ class BPGameplayController(BPController):
 				startY = windowHeight - (pixelsPerSecond * timeAdjustment)
 				arrowSprite = BPSprite(
 					self.context, 
+					arrow,
 					(colPosX, startY),
 					self.imgArrows[self.arrowType][curKey], 0)
 				arrowSprite.queueAction(	# Animate past top of screen
@@ -385,6 +400,13 @@ class BPGameplayController(BPController):
 						BPSprite.ACTION_DURATION:self.ARROW_FADE_TIME,
 						BPSprite.ACTION_BLEND:True
 					})
+				arrowSprite.queueAction(	# Callback to controller on miss
+					{	
+						BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_CALLBACK,
+						BPSprite.ACTION_CALLBACK_FUNCTION:self.arrowMissDelegate,
+						BPSprite.ACTION_START_TIME:time.time() + timeToHitZone + self.HIT_THRESHOLDS[2],
+						BPSprite.ACTION_BLEND:True
+					})
 				arrowSprite.queueAction(	# Terminate
 					{
 						BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_TERMINATE,
@@ -392,7 +414,6 @@ class BPGameplayController(BPController):
 						BPSprite.ACTION_START_TIME:time.time() + duration
 					})
 				self.sprites.append(arrowSprite)
-				self.spawned.append(arrow)
 			else:
 				unspawned.append(arrow)
 		self.arrows = unspawned
@@ -411,12 +432,23 @@ class BPGameplayController(BPController):
 			self.drawSprites()
 		self.drawHUD()
 		
+	def getKeyIndex(self, event):
+		if (event.type == KEYDOWN or event.type == KEYUP) and event.key in self.KEYS:
+			return self.KEYS.index(event.key)
+		return -1
+		
 	def recordKeys(self, event):
 		if self.RECORDING_MODE == False: return
-		if event.type not in (KEYDOWN, KEYUP): return
 		
-		if event.key in self.KEYS:
-			keyIndex = self.KEYS.index(event.key)
+		if event.key == self.KEY_QUIT_RECORDING:
+			with open(self.ARROW_TIMING_FILE, 'w') as f:
+				for keystroke in self.keystrokes:
+					f.write('{0}\t{1}\t{2}\n'.format(
+						keystroke[self.ARROW_TIMING_KEY_DOWN], keystroke[self.ARROW_TIMING_KEY_UP], keystroke[self.ARROW_TIMING_KEY_KEY]))
+			return
+						
+		keyIndex = self.getKeyIndex(event)
+		if keyIndex >= 0:
 			eventTime = time.time() - self.context['timeLevelStart']
 			if event.type == KEYDOWN:
 				self.keystrokes.append(
@@ -428,14 +460,26 @@ class BPGameplayController(BPController):
 				for keystroke in self.keystrokes:
 					if keystroke[self.ARROW_TIMING_KEY_KEY] == keyIndex and self.ARROW_TIMING_KEY_UP not in keystroke.keys():
 						keystroke[self.ARROW_TIMING_KEY_UP] = eventTime
-		elif event.key == self.KEY_QUIT_RECORDING:
-			with open(self.ARROW_TIMING_FILE, 'w') as f:
-				for keystroke in self.keystrokes:
-					f.write('{0}\t{1}\t{2}\n'.format(
-						keystroke[self.ARROW_TIMING_KEY_DOWN], keystroke[self.ARROW_TIMING_KEY_UP], keystroke[self.ARROW_TIMING_KEY_KEY]))
 			
 	def handleEvent(self, event):
 		self.recordKeys(event)
+		curLevelTime = time.time() - self.context['timeLevelStart']
+		keyIndex = self.getKeyIndex(event)
+		if event.type == KEYDOWN and keyIndex >= 0 and len(self.sprites) > 0:
+			arrowData = self.sprites[0].data
+			hit = False
+			if arrowData[self.ARROW_TIMING_KEY_KEY] == keyIndex:
+				for threshold in self.HIT_THRESHOLDS:
+					if abs(arrowData[self.ARROW_TIMING_KEY_DOWN] - curLevelTime) <= threshold:
+						print("HIT ", str(threshold))
+						hit = True
+						self.sprites.pop(0)
+						break
+			if hit == False:
+				# miss
+				print("MISS!")
+				pass
+				
 		
 #----------------------------------------------------------
 # BPGame class
@@ -492,7 +536,7 @@ def main():
 	bpContext['windowSize'] = { 'width':960, 'height':540 }
 	bpContext['musicFile'] = 'bubble_pop.wav'
 	bpContext['title'] = 'Bubble Pop!'
-	bpContext['musicEnabled'] = False
+	bpContext['musicEnabled'] = True
 	
 	bpContext['clockFPS'] = pygame.time.Clock()
 	bpContext['surfDisp'] = pygame.display.set_mode((bpContext['windowSize']['width'], bpContext['windowSize']['height']))
