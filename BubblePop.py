@@ -60,7 +60,7 @@ class BPSprite(object):
 	ACTION_CALLBACK = "callback"			# callback action
 	ACTION_CALLBACK_FUNCTION = "cb_func"	# callback function
 	
-	def __init__(self, context, data, pos, imgObj, curImg):
+	def __init__(self, context, data, pos, imgObj, curImg = 0):
 		"""
 			init() method
 			
@@ -258,7 +258,7 @@ class BPLaunchController(BPController):
 		BPController.__init__(self, parent, context)
 		
 	def start(self):
-		startImg = pygame.image.load('start.jpg').convert()			
+		startImg = pygame.image.load('bg_start.jpg').convert()			
 		self.context['surfDisp'].blit(startImg, (0, 0))
 		
 	def handleEvent(self, event):
@@ -274,11 +274,15 @@ class BPGameplayController(BPController):
 	"""
 	levelData = []
 	imgArrows = []
-	imgBG = None
 	imgHUDArrows = []
+	imgTextFlashers = []
+	imgBG = None
+	imgHitFlasher = None
+	imgMissFlasher = None
 	sprites = []
+	flashers = []
 	keystrokes = []
-	arrows = []
+	arrowData = []
 	arrowType = 0
 	
 	KEYS = [K_j, K_k, K_i, K_l]		# Using ijkl as the keypad (bigger keys, easier to press)
@@ -298,13 +302,33 @@ class BPGameplayController(BPController):
 	ARROW_TIME_BOTTOM_TO_TOP = 3	# Time for arrow to go from bottom of screen to top 
 	ARROW_FADE_TIME = 0.2			# Time to fade arrow to 0 alpha after past hit zone
 	
-	HIT_THRESHOLDS = [0.05, 0.1, 0.15 ]		# Hit thresholds for scoring
+	HIT_THRESHOLDS = [0.05, 0.1, 0.15]		# Hit thresholds for scoring
+	HIT_FLASHER_FADE_TIME = 0.25			# Hit flasher fade time
+	NUM_HIT_TEXT_FLASHERS = 4				# Num hit text flasher images
+	HIT_TEXT_FLASHER_SIZE = { 'width':81, 'height':15 }
+	
+	MISS_FLASHER_SIZE = { 'width':269, 'height':49 }
+	MISS_FLASHER_Y = 290					# y-coord for miss flasher
+	MISS_FLASHER_FADE_TIME = 0.5			# miss flasher fade time
+	MISS_FLASHER_INDICATOR = 'miss'			# how we remember which flashers are miss flashers
 	
 	#--- RECORDING MODE ---#
 	RECORDING_MODE = False
 	
 	def __init__(self, parent, context):
 		BPController.__init__(self, parent, context)
+		self.levelData = []
+		self.imgArrows = []
+		self.imgHUDArrows = []
+		self.imgTextFlashers = []
+		self.imgMissFlasher = None
+		self.imgBG = None
+		self.imgHitFlasher = None
+		self.sprites = []
+		self.flashers = []
+		self.keystrokes = []
+		self.arrowData = []
+		self.arrowType = 0
 		
 	def getColPosX(self, col):
 		return self.HUD_ARROW_START_POS['x'] + (col * self.IMG_ARROW_SIZE['width']) + (col * self.ARROW_COLUMN_PAD)
@@ -315,13 +339,12 @@ class BPGameplayController(BPController):
 			self.context['surfDisp'].blit(
 				self.imgHUDArrows[i], 
 				(self.getColPosX(i), self.HUD_ARROW_START_POS['y']))
-		
-	def drawSprites(self):
-		for sprite in self.sprites:
-			sprite.draw()
 			
 	def removeSprite(self, sprite):
 		self.sprites.remove(sprite)
+		
+	def removeFlasher(self, sprite):
+		self.flashers.remove(sprite)
 		
 	def drawHUD(self):			
 		pass
@@ -335,14 +358,16 @@ class BPGameplayController(BPController):
 				timingValues = [float(i) for i in timingValues]
 				arrow = dict(zip(timingKeys, timingValues))
 				arrow[self.ARROW_TIMING_KEY_KEY] = int(arrow[self.ARROW_TIMING_KEY_KEY])
-				self.arrows.append(arrow)
+				self.arrowData.append(arrow)
 						
 		# Load the images
-		self.imgBG = pygame.image.load('bg_gameplay.jpg').convert()
-		
+		self.imgBG = pygame.image.load('bg_gameplay.jpg').convert()	
+		self.imgHitFlasher = pygame.image.load('hit.png').convert_alpha()
+		self.imgMissFlasher = pygame.image.load('text_flasher_miss.png').convert_alpha()
 		for i in range(self.NUM_ARROW_DIRECTIONS):	# HUD arrows
-			self.imgHUDArrows.append(pygame.image.load('arrow_hud_{0}.png'.format(i)).convert_alpha())
-			
+			self.imgHUDArrows.append(pygame.image.load('arrow_hud_{0}.png'.format(i)).convert_alpha())		
+		for i in range(self.NUM_HIT_TEXT_FLASHERS): # Hit text flashers
+			self.imgTextFlashers.append(pygame.image.load('text_flasher_{0}.png'.format(i)).convert_alpha())
 		for i in range(self.NUM_ARROW_TYPES):		# Gameplay arrows
 			self.imgArrows.append([])
 			for j in range(self.NUM_ARROW_DIRECTIONS):
@@ -360,7 +385,7 @@ class BPGameplayController(BPController):
 		
 	def arrowMissDelegate(self, sprite):
 		self.sprites.remove(sprite)
-		# TODO - Play a flasher of some sort
+		self.spawnMissFlasher()
 		
 	def spawnArrows(self):
 		imgHeight = self.IMG_ARROW_SIZE['height']
@@ -372,7 +397,7 @@ class BPGameplayController(BPController):
 		curTime = time.time() - self.context['timeLevelStart']
 		unspawned = []
 		
-		for arrow in self.arrows:	# check for arrows to spawn
+		for arrow in self.arrowData:	# check for arrows to spawn
 			keyTime = arrow[self.ARROW_TIMING_KEY_DOWN]
 			spawnTime = keyTime - timeToHitZone
 			if curTime >= spawnTime:	# if it's time to spawn this arrow
@@ -416,7 +441,76 @@ class BPGameplayController(BPController):
 				self.sprites.append(arrowSprite)
 			else:
 				unspawned.append(arrow)
-		self.arrows = unspawned
+		self.arrowData = unspawned
+		
+	def spawnHitFlasher(self, col, txtIdx):
+		# kill any miss flashers
+		self.flashers = [f for f in self.flashers if f.data != self.MISS_FLASHER_INDICATOR]
+			
+		# spark sprite
+		sprite = BPSprite(
+			self.context, 
+			None,
+			(self.getColPosX(col), self.HUD_ARROW_START_POS['y']),
+			[self.imgHitFlasher])
+		sprite.queueAction(	# Fade 
+			{	
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_ALPHA,
+				BPSprite.ACTION_ALPHA_TARGET:0,
+				BPSprite.ACTION_START_TIME:time.time(),
+				BPSprite.ACTION_DURATION:self.HIT_FLASHER_FADE_TIME
+			})
+		sprite.queueAction(	# Terminate
+			{
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_TERMINATE,
+				BPSprite.ACTION_TERMINATE_DELEGATE:self.removeFlasher,
+				BPSprite.ACTION_START_TIME:time.time() + self.HIT_FLASHER_FADE_TIME
+			})
+		self.flashers.append(sprite)
+		
+		# text sprite
+		xOffset = (self.IMG_ARROW_SIZE['width'] - self.HIT_TEXT_FLASHER_SIZE['width']) / 2
+		yOffset = (self.IMG_ARROW_SIZE['height'] - self.HIT_TEXT_FLASHER_SIZE['height']) / 2
+		txtSprite = BPSprite(
+			self.context, 
+			None,
+			(self.getColPosX(col) + xOffset, self.HUD_ARROW_START_POS['y'] + yOffset),
+			[self.imgTextFlashers[txtIdx]])
+		txtSprite.queueAction(	# Fade 
+			{	
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_ALPHA,
+				BPSprite.ACTION_ALPHA_TARGET:0,
+				BPSprite.ACTION_START_TIME:time.time(),
+				BPSprite.ACTION_DURATION:self.HIT_FLASHER_FADE_TIME
+			})
+		txtSprite.queueAction(	# Terminate
+			{
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_TERMINATE,
+				BPSprite.ACTION_TERMINATE_DELEGATE:self.removeFlasher,
+				BPSprite.ACTION_START_TIME:time.time() + self.HIT_FLASHER_FADE_TIME
+			})
+		self.flashers.append(txtSprite)
+		
+	def spawnMissFlasher(self):
+		sprite = BPSprite(
+			self.context, 
+			self.MISS_FLASHER_INDICATOR,
+			((self.context['windowSize']['width'] / 2) - (self.MISS_FLASHER_SIZE['width'] / 2), self.MISS_FLASHER_Y),
+			[self.imgMissFlasher])
+		sprite.queueAction(	# Fade 
+			{	
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_ALPHA,
+				BPSprite.ACTION_ALPHA_TARGET:0,
+				BPSprite.ACTION_START_TIME:time.time(),
+				BPSprite.ACTION_DURATION:self.MISS_FLASHER_FADE_TIME
+			})
+		sprite.queueAction(	# Terminate
+			{
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_TERMINATE,
+				BPSprite.ACTION_TERMINATE_DELEGATE:self.removeFlasher,
+				BPSprite.ACTION_START_TIME:time.time() + self.MISS_FLASHER_FADE_TIME
+			})
+		self.flashers.append(sprite)
 		
 	def handleUpdate(self):
 		# Spawn
@@ -425,11 +519,14 @@ class BPGameplayController(BPController):
 		# Update
 		for sprite in list(self.sprites):
 			sprite.update()
+		for flasher in list(self.flashers):
+			flasher.update()
 		
 		# Draw
 		self.drawBG()
 		if self.RECORDING_MODE == False:
-			self.drawSprites()
+			for sprite in self.sprites: sprite.draw()
+			for flasher in self.flashers: flasher.draw()
 		self.drawHUD()
 		
 	def getKeyIndex(self, event):
@@ -469,15 +566,17 @@ class BPGameplayController(BPController):
 			arrowData = self.sprites[0].data
 			hit = False
 			if arrowData[self.ARROW_TIMING_KEY_KEY] == keyIndex:
-				for threshold in self.HIT_THRESHOLDS:
-					if abs(arrowData[self.ARROW_TIMING_KEY_DOWN] - curLevelTime) <= threshold:
-						print("HIT ", str(threshold))
+				for i in range(len(self.HIT_THRESHOLDS)):
+					delta = arrowData[self.ARROW_TIMING_KEY_DOWN] - curLevelTime
+					if abs(delta) <= self.HIT_THRESHOLDS[i]:
 						hit = True
+						txtIdx = i
+						if i >= 2 and delta < 0: txtIdx = txtIdx + 1
 						self.sprites.pop(0)
+						self.spawnHitFlasher(keyIndex, txtIdx)
 						break
 			if hit == False:
-				# miss
-				print("MISS!")
+				self.spawnMissFlasher()
 				pass
 				
 		
