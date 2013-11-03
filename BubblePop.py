@@ -303,7 +303,7 @@ class BPGameplayController(BPController):
 
 	NUM_ARROW_DIRECTIONS = 4		# Left, Down, Up, Right
 	NUM_ARROW_TYPES = 4				# Green, Orange, Pink, Blue
-	NUM_ARROW_STATES = 4			# No fill, 1-bar fill, 2-bar fill, 3-bar fill
+	NUM_ARROW_STATES = 3			# 1-bar fill, 2-bar fill, 3-bar fill
 	
 	IMG_ARROW_SIZE = (60, 60)		# Dimensions of the arrow images
 	HUD_ARROW_START_POS = (352, 50)	# Start position for the HUD arrows
