@@ -1,4 +1,4 @@
-import sys, pygame, time
+import sys, pygame, time, math
 from pygame.locals import *
 
 """
@@ -59,6 +59,10 @@ class BPSprite(object):
 	# CALLBACK
 	ACTION_CALLBACK = "callback"			# callback action
 	ACTION_CALLBACK_FUNCTION = "cb_func"	# callback function
+	
+	# CYCLE IMAGES
+	ACTION_CYCLE_IMAGES = "cycle_img"		# cycle image action
+	ACTION_CYCLE_IMAGES_CALLBACK = "cycle_cb"	# cycle callback
 	
 	def __init__(self, context, data, pos, imgObj, curImg = 0):
 		"""
@@ -147,9 +151,12 @@ class BPSprite(object):
 			self.terminated = True
 			if self.ACTION_TERMINATE_DELEGATE in action.keys():
 				action[self.ACTION_TERMINATE_DELEGATE](self)
-				
-		if percElapsed >= 1:
-			self.actions.remove(action)
+		elif action[self.ACTION_IDENTIFIER] == self.ACTION_CYCLE_IMAGES:
+			self.curImg = math.floor(elapsed / (action[self.ACTION_DURATION] / len(self.imgObj))) % len(self.imgObj)
+			if percElapsed >= 1 and self.ACTION_CYCLE_IMAGES_CALLBACK in action.keys():
+				action[self.ACTION_CYCLE_IMAGES_CALLBACK](self)
+			
+		if percElapsed >= 1: self.actions.remove(action)
 		
 	def update(self):
 		"""
@@ -285,8 +292,11 @@ class BPGameplayController(BPController):
 	scoreDigits = []
 	keystrokes = []
 	arrowData = []
+	beats = []
 	arrowType = 0
 	score = 0
+	curBeat = 0
+	lastBeatTime = 0.0
 	
 	KEYS = [K_j, K_k, K_i, K_l]		# Using ijkl as the keypad (bigger keys, easier to press)
 	KEY_QUIT_RECORDING = K_SPACE	# Stops a recording session
@@ -305,6 +315,8 @@ class BPGameplayController(BPController):
 	ARROW_TIME_BOTTOM_TO_TOP = 3	# Time for arrow to go from bottom of screen to top 
 	ARROW_FADE_TIME = 0.2			# Time to fade arrow to 0 alpha after past hit zone
 	
+	BEAT_TIMING_FILE = 'bubble_pop_beat.txt'	# File for beat timings
+	
 	HIT_THRESHOLDS = (0.05, 0.1, 0.15)		# Hit thresholds for scoring
 	HIT_FLASHER_FADE_TIME = 0.25			# Hit flasher fade time
 	NUM_HIT_TEXT_FLASHERS = 4				# Num hit text flasher images
@@ -319,7 +331,7 @@ class BPGameplayController(BPController):
 	SCORE_VALUES = [10, 5, 1]				# score values for each hit threshold
 	SCORE_DIGIT_OFFSET = (10, 10)			# offset from the top right for first score digit
 	SCORE_DIGIT_SIZE = (49, 49)				# size of each score digit image	
-	SCORE_DIGIT_PAD = 0		 
+	SCORE_DIGIT_PAD = 0		 				# pad between score digits
 	
 	#--- RECORDING MODE ---#
 	RECORDING_MODE = False
@@ -338,8 +350,11 @@ class BPGameplayController(BPController):
 		self.flashers = []
 		self.keystrokes = []
 		self.arrowData = []
+		self.beats = []
 		self.arrowType = 0
 		self.score = 0
+		self.curBeat = 0
+		self.lastBeatTime = 0.0
 		
 	def getColPosX(self, col):
 		return self.HUD_ARROW_START_POS[0] + (col * self.IMG_ARROW_SIZE[0]) + (col * self.ARROW_COLUMN_PAD)
@@ -350,6 +365,19 @@ class BPGameplayController(BPController):
 			self.context['surfDisp'].blit(
 				self.imgHUDArrows[i], 
 				(self.getColPosX(i), self.HUD_ARROW_START_POS[1]))
+	
+	def drawSprites(self):
+		for sprite in self.sprites: sprite.draw()
+		
+	def spriteAddBeat(self, sprite):
+		sprite.queueAction(	
+			{	
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_CYCLE_IMAGES,
+				BPSprite.ACTION_START_TIME:self.context['timeLevelStart'] + self.lastBeatTime,
+				BPSprite.ACTION_DURATION:self.beats[self.curBeat] - self.lastBeatTime,
+				BPSprite.ACTION_CYCLE_IMAGES_CALLBACK:self.spriteAddBeat,
+				BPSprite.ACTION_BLEND:True
+			})
 			
 	def removeSprite(self, sprite):
 		self.sprites.remove(sprite)
@@ -358,11 +386,11 @@ class BPGameplayController(BPController):
 		self.flashers.remove(sprite)
 		
 	def drawHUD(self):
-		for digit in self.scoreDigits:
-			digit.draw()
+		for digit in self.scoreDigits: digit.draw()
+		for flasher in self.flashers: flasher.draw()
 
 	def start(self):
-		# Load the level data
+		# Load the arrow timing data
 		timingKeys = [self.ARROW_TIMING_KEY_DOWN, self.ARROW_TIMING_KEY_UP, self.ARROW_TIMING_KEY_KEY]
 		with open(self.ARROW_TIMING_FILE, 'r') as f:
 			for line in f:
@@ -371,6 +399,11 @@ class BPGameplayController(BPController):
 				arrow = dict(zip(timingKeys, timingValues))
 				arrow[self.ARROW_TIMING_KEY_KEY] = int(arrow[self.ARROW_TIMING_KEY_KEY])
 				self.arrowData.append(arrow)
+				
+		# Load the beat timings
+		with open(self.BEAT_TIMING_FILE, 'r') as f:
+			for line in f:
+				self.beats.append(float(line.split('\t')[0]))
 						
 		# Load the images
 		self.imgBG = pygame.image.load('bg_gameplay.jpg').convert()	
@@ -423,23 +456,27 @@ class BPGameplayController(BPController):
 		secondsPerPixel = 1 / pixelsPerSecond
 		pixelsToHitZone = windowHeight - self.HUD_ARROW_START_POS[1]
 		timeToHitZone = pixelsToHitZone * secondsPerPixel
-		curTime = time.time() - self.context['timeLevelStart']
+		curLevelTime = time.time() - self.context['timeLevelStart']
 		unspawned = []
 		
 		for arrow in self.arrowData:	# check for arrows to spawn
 			keyTime = arrow[self.ARROW_TIMING_KEY_DOWN]
 			spawnTime = keyTime - timeToHitZone
-			if curTime >= spawnTime:	# if it's time to spawn this arrow
+			if curLevelTime >= spawnTime:	# if it's time to spawn this arrow
 				curKey = arrow[self.ARROW_TIMING_KEY_KEY]
 				colPosX = self.getColPosX(curKey)
-				timeAdjustment = curTime - spawnTime
+				timeAdjustment = curLevelTime - spawnTime
 				duration = self.ARROW_TIME_BOTTOM_TO_TOP - timeAdjustment
 				startY = windowHeight - (pixelsPerSecond * timeAdjustment)
+				timeSinceLastBeat = curLevelTime - self.lastBeatTime
+				timeBetweenBeats = self.beats[self.curBeat] - self.lastBeatTime
+				curImg = math.floor(timeSinceLastBeat / (timeBetweenBeats / self.NUM_ARROW_STATES)) % self.NUM_ARROW_STATES
 				arrowSprite = BPSprite(
 					self.context, 
 					arrow,
 					(colPosX, startY),
-					self.imgArrows[self.arrowType][curKey], 0)
+					self.imgArrows[self.arrowType][curKey], 
+					curImg)
 				arrowSprite.queueAction(	# Animate past top of screen
 					{	
 						BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_POSITION,
@@ -467,6 +504,7 @@ class BPGameplayController(BPController):
 						BPSprite.ACTION_TERMINATE_DELEGATE:self.removeSprite,
 						BPSprite.ACTION_START_TIME:time.time() + duration
 					})
+				self.spriteAddBeat(arrowSprite)
 				self.sprites.append(arrowSprite)
 			else:
 				unspawned.append(arrow)
@@ -551,23 +589,24 @@ class BPGameplayController(BPController):
 			sprite.imgObj = self.imgArrows[self.arrowType][sprite.data[self.ARROW_TIMING_KEY_KEY]]
 		
 	def handleUpdate(self):
+		if self.RECORDING_MODE == True: return
+		
+		while self.curBeat < len(self.beats) - 1 and time.time() - self.context['timeLevelStart'] >= self.beats[self.curBeat]:
+			self.lastBeatTime = self.beats[self.curBeat]
+			self.curBeat = self.curBeat + 1
+		
 		# Spawn
 		self.spawnArrows()
 		self.updateScoreDigitSprites()
 		
 		# Update
-		for sprite in list(self.sprites):
-			sprite.update()
-		for flasher in list(self.flashers):
-			flasher.update()
-		for digit in self.scoreDigits:
-			digit.update()
+		for sprite in list(self.sprites): sprite.update()
+		for flasher in list(self.flashers): flasher.update()
+		for digit in self.scoreDigits: digit.update()
 		
 		# Draw
 		self.drawBG()
-		if self.RECORDING_MODE == False:
-			for sprite in self.sprites: sprite.draw()
-			for flasher in self.flashers: flasher.draw()
+		self.drawSprites()
 		self.drawHUD()
 		
 	def getKeyIndex(self, event):
@@ -578,7 +617,7 @@ class BPGameplayController(BPController):
 	def recordKeys(self, event):
 		if self.RECORDING_MODE == False: return
 		
-		if event.key == self.KEY_QUIT_RECORDING:
+		if (event.type == KEYDOWN or event.type == KEYUP) and event.key == self.KEY_QUIT_RECORDING:
 			with open(self.ARROW_TIMING_FILE, 'w') as f:
 				for keystroke in self.keystrokes:
 					f.write('{0}\t{1}\t{2}\n'.format(
