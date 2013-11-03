@@ -60,9 +60,9 @@ class BPSprite(object):
 	ACTION_CALLBACK = "callback"			# callback action
 	ACTION_CALLBACK_FUNCTION = "cb_func"	# callback function
 	
-	# CYCLE IMAGES
-	ACTION_CYCLE_IMAGES = "cycle_img"		# cycle image action
-	ACTION_CYCLE_IMAGES_CALLBACK = "cycle_cb"	# cycle callback
+	# SET IMAGE
+	ACTION_SET_IMAGE = "set_img"			# set image action
+	ACTION_SET_IMAGE_INDEX = "set_img_idx"	# image index
 	
 	def __init__(self, context, data, pos, imgObj, curImg = 0):
 		"""
@@ -151,10 +151,8 @@ class BPSprite(object):
 			self.terminated = True
 			if self.ACTION_TERMINATE_DELEGATE in action.keys():
 				action[self.ACTION_TERMINATE_DELEGATE](self)
-		elif action[self.ACTION_IDENTIFIER] == self.ACTION_CYCLE_IMAGES:
-			self.curImg = math.floor(elapsed / (action[self.ACTION_DURATION] / len(self.imgObj))) % len(self.imgObj)
-			if percElapsed >= 1 and self.ACTION_CYCLE_IMAGES_CALLBACK in action.keys():
-				action[self.ACTION_CYCLE_IMAGES_CALLBACK](self)
+		elif action[self.ACTION_IDENTIFIER] == self.ACTION_SET_IMAGE:
+			self.curImg = action[self.ACTION_SET_IMAGE_INDEX]
 			
 		if percElapsed >= 1: self.actions.remove(action)
 		
@@ -169,7 +167,6 @@ class BPSprite(object):
 			if time.time() >= action[self.ACTION_START_TIME] and (action == self.actions[0] or 
 				action[self.ACTION_BLEND] == True or action[self.ACTION_IDENTIFIER] == self.ACTION_TERMINATE):
 				self.handleAction(action)
-		
 	
 #----------------------------------------------------------
 # BPController class
@@ -282,6 +279,7 @@ class BPGameplayController(BPController):
 	levelData = []
 	imgArrows = []
 	imgHUDArrows = []
+	imgHUDArrowFlashes = []
 	imgTextFlashers = []
 	imgScoreNums = []
 	imgBG = None
@@ -293,6 +291,7 @@ class BPGameplayController(BPController):
 	keystrokes = []
 	arrowData = []
 	beats = []
+	hudArrowFlashers = []
 	arrowType = 0
 	score = 0
 	curBeat = 0
@@ -341,6 +340,7 @@ class BPGameplayController(BPController):
 		self.levelData = []
 		self.imgArrows = []
 		self.imgHUDArrows = []
+		self.imgHUDArrowFlashers = []
 		self.imgTextFlashers = []
 		self.imgScoreNums = []
 		self.imgMissFlasher = None
@@ -351,6 +351,7 @@ class BPGameplayController(BPController):
 		self.keystrokes = []
 		self.arrowData = []
 		self.beats = []
+		self.hudArrowFlashers = []
 		self.arrowType = 0
 		self.score = 0
 		self.curBeat = 0
@@ -365,17 +366,55 @@ class BPGameplayController(BPController):
 			self.context['surfDisp'].blit(
 				self.imgHUDArrows[i], 
 				(self.getColPosX(i), self.HUD_ARROW_START_POS[1]))
+		for flash in self.hudArrowFlashers: flash.draw()
 	
 	def drawSprites(self):
 		for sprite in self.sprites: sprite.draw()
 		
 	def spriteAddBeat(self, sprite):
-		sprite.queueAction(	
+		interval = (self.beats[self.curBeat] - self.lastBeatTime) / self.NUM_ARROW_STATES
+		nextBeatTime = self.context['timeLevelStart'] + self.beats[self.curBeat]
+		for i in range(self.NUM_ARROW_STATES):
+			sprite.queueAction(	
+				{	
+					BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_SET_IMAGE,
+					BPSprite.ACTION_SET_IMAGE_INDEX:self.NUM_ARROW_STATES - i - 1,
+					BPSprite.ACTION_START_TIME:nextBeatTime - (i * interval),
+					BPSprite.ACTION_BLEND:True
+				})
+		sprite.queueAction(	# Callback and do it again
 			{	
-				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_CYCLE_IMAGES,
-				BPSprite.ACTION_START_TIME:self.context['timeLevelStart'] + self.lastBeatTime,
-				BPSprite.ACTION_DURATION:self.beats[self.curBeat] - self.lastBeatTime,
-				BPSprite.ACTION_CYCLE_IMAGES_CALLBACK:self.spriteAddBeat,
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_CALLBACK,
+				BPSprite.ACTION_CALLBACK_FUNCTION:self.spriteAddBeat,
+				BPSprite.ACTION_START_TIME:nextBeatTime,
+				BPSprite.ACTION_BLEND:True
+			})
+			
+	def hudArrowAddFlash(self, sprite):
+		startTime = time.time()
+		endTime = startTime + ((self.beats[self.curBeat] - self.lastBeatTime) / self.NUM_ARROW_STATES)
+		cbTime = self.context['timeLevelStart'] + self.beats[self.curBeat]
+		sprite.queueAction(	# Flash on
+			{	
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_ALPHA,
+				BPSprite.ACTION_ALPHA_TARGET:255,
+				BPSprite.ACTION_ALPHA_ORIGIN:0,
+				BPSprite.ACTION_START_TIME:startTime,
+				BPSprite.ACTION_BLEND:True
+			})
+		sprite.queueAction(	# Flash off
+			{	
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_ALPHA,
+				BPSprite.ACTION_ALPHA_TARGET:0,
+				BPSprite.ACTION_ALPHA_ORIGIN:255,
+				BPSprite.ACTION_START_TIME:endTime,
+				BPSprite.ACTION_BLEND:True
+			})
+		sprite.queueAction(	# Callback and do it again
+			{	
+				BPSprite.ACTION_IDENTIFIER:BPSprite.ACTION_CALLBACK,
+				BPSprite.ACTION_CALLBACK_FUNCTION:self.hudArrowAddFlash,
+				BPSprite.ACTION_START_TIME:cbTime,
 				BPSprite.ACTION_BLEND:True
 			})
 			
@@ -390,6 +429,8 @@ class BPGameplayController(BPController):
 		for flasher in self.flashers: flasher.draw()
 
 	def start(self):
+		self.context['timeLevelStart'] = time.time()
+		
 		# Load the arrow timing data
 		timingKeys = [self.ARROW_TIMING_KEY_DOWN, self.ARROW_TIMING_KEY_UP, self.ARROW_TIMING_KEY_KEY]
 		with open(self.ARROW_TIMING_FILE, 'r') as f:
@@ -410,7 +451,8 @@ class BPGameplayController(BPController):
 		self.imgHitFlasher = pygame.image.load('hit.png').convert_alpha()
 		self.imgMissFlasher = pygame.image.load('text_flasher_miss.png').convert_alpha()
 		for i in range(self.NUM_ARROW_DIRECTIONS):	# HUD arrows
-			self.imgHUDArrows.append(pygame.image.load('arrow_hud_{0}.png'.format(i)).convert_alpha())		
+			self.imgHUDArrows.append(pygame.image.load('arrow_hud_{0}.png'.format(i)).convert_alpha())	
+			self.imgHUDArrowFlashers.append(pygame.image.load('arrow_hud_flash_{0}.png'.format(i)).convert_alpha())	
 		for i in range(self.NUM_HIT_TEXT_FLASHERS): # Hit text flashers
 			self.imgTextFlashers.append(pygame.image.load('text_flasher_{0}.png'.format(i)).convert_alpha())
 		for i in range(10): 		# Score digits
@@ -429,9 +471,19 @@ class BPGameplayController(BPController):
 			
 		# Create the score digit sprites
 		self.spawnScoreDigits()
+		
+		# Create the hud arrow flashers
+		for i in range(self.NUM_ARROW_DIRECTIONS):
+			sprite = BPSprite(
+				self.context, 
+				"hud_arrow_flasher",
+				(self.getColPosX(i), self.HUD_ARROW_START_POS[1]),
+				[self.imgHUDArrowFlashers[i]])
+			sprite.alpha = 0
+			self.hudArrowAddFlash(sprite)
+			self.hudArrowFlashers.append(sprite)
 
 		self.keystrokes = []
-		self.context['timeLevelStart'] = time.time()
 		
 	def arrowMissDelegate(self, sprite):
 		self.sprites.remove(sprite)
@@ -470,7 +522,7 @@ class BPGameplayController(BPController):
 				startY = windowHeight - (pixelsPerSecond * timeAdjustment)
 				timeSinceLastBeat = curLevelTime - self.lastBeatTime
 				timeBetweenBeats = self.beats[self.curBeat] - self.lastBeatTime
-				curImg = math.floor(timeSinceLastBeat / (timeBetweenBeats / self.NUM_ARROW_STATES)) % self.NUM_ARROW_STATES
+				curImg = (math.floor(timeSinceLastBeat / (timeBetweenBeats / self.NUM_ARROW_STATES)) + 1) % self.NUM_ARROW_STATES
 				arrowSprite = BPSprite(
 					self.context, 
 					arrow,
@@ -600,6 +652,7 @@ class BPGameplayController(BPController):
 		self.updateScoreDigitSprites()
 		
 		# Update
+		for flash in self.hudArrowFlashers: flash.update()
 		for sprite in list(self.sprites): sprite.update()
 		for flasher in list(self.flashers): flasher.update()
 		for digit in self.scoreDigits: digit.update()
