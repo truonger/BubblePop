@@ -544,6 +544,11 @@ class BPGameplayController(BPController):
 	def updateScoreDigitSprites(self):
 		for i in range(len(self.scoreDigits)):
 			self.scoreDigits[i].curImg = int(str(self.score).zfill(self.NUM_SCORE_DIGITS)[-1 * (i + 1)])
+			
+	def updateArrowTypes(self):
+		self.arrowType = (self.arrowType + 1) % self.NUM_ARROW_TYPES
+		for sprite in self.sprites:
+			sprite.imgObj = self.imgArrows[self.arrowType][sprite.data[self.ARROW_TIMING_KEY_KEY]]
 		
 	def handleUpdate(self):
 		# Spawn
@@ -611,6 +616,7 @@ class BPGameplayController(BPController):
 						if i >= 2 and delta < 0: txtIdx = txtIdx + 1
 						self.sprites.pop(0)
 						self.spawnHitFlasher(keyIndex, txtIdx)
+						self.updateArrowTypes()
 						break
 			if hit == False:
 				self.spawnMissFlasher()
