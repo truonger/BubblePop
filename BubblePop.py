@@ -318,8 +318,8 @@ class BPGameplayController(BPController):
 	NUM_SCORE_DIGITS = 6					# number of digits in our score
 	SCORE_VALUES = [10, 5, 1]				# score values for each hit threshold
 	SCORE_DIGIT_OFFSET = (10, 10)			# offset from the top right for first score digit
-	SCORE_DIGIT_SIZE = (54, 54)				# size of each score digit image	
-	SCORE_DIGIT_PAD = 5		 
+	SCORE_DIGIT_SIZE = (49, 49)				# size of each score digit image	
+	SCORE_DIGIT_PAD = 0		 
 	
 	#--- RECORDING MODE ---#
 	RECORDING_MODE = False
