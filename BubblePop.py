@@ -14,6 +14,7 @@ from pygame.locals import *
 		11/02/13 -  8:00 am - 10:30 am (2.5 hrs)
 		11/02/13 -  1:00 pm -  4:30 pm (3.5 hrs)
 		11/02/13 -  6:30 pm -  1:30 am (7 hrs)
+		11/03/13 -  9:30 am -  ?
 		
 		TOTAL  25 HRS
 """
@@ -298,6 +299,10 @@ class BPGameplayController(BPController):
 	score = 0
 	curBeat = 0
 	lastBeatTime = 0.0
+	timingFile = None
+	beatFile = None
+	bgFile = None
+	songFile = None
 	
 	KEYS = [K_j, K_k, K_i, K_l]		# Using ijkl as the keypad (bigger keys, easier to press)
 	KEY_QUIT_RECORDING = K_SPACE	# Stops a recording session
@@ -309,14 +314,11 @@ class BPGameplayController(BPController):
 	IMG_ARROW_SIZE = (60, 60)		# Dimensions of the arrow images
 	HUD_ARROW_START_POS = (352, 50)	# Start position for the HUD arrows
 	ARROW_COLUMN_PAD = 5
-	ARROW_TIMING_FILE = 'bubble_pop_arrow_timings.txt'	# File for arrow timings
 	ARROW_TIMING_KEY_DOWN = 'down'	# Dictionary key
 	ARROW_TIMING_KEY_UP = 'up'		# Dictionary key
 	ARROW_TIMING_KEY_KEY = 'key'	# Dictionary key
 	ARROW_TIME_BOTTOM_TO_TOP = 3	# Time for arrow to go from bottom of screen to top 
 	ARROW_FADE_TIME = 0.2			# Time to fade arrow to 0 alpha after past hit zone
-	
-	BEAT_TIMING_FILE = 'bubble_pop_beat.txt'	# File for beat timings
 	
 	HIT_THRESHOLDS = (0.05, 0.1, 0.15)		# Hit thresholds for scoring
 	HIT_FLASHER_FADE_TIME = 0.25			# Hit flasher fade time
@@ -358,6 +360,10 @@ class BPGameplayController(BPController):
 		self.score = 0
 		self.curBeat = 0
 		self.lastBeatTime = 0.0
+		self.timingFile = None
+		self.beatFile = None
+		self.bgFile = None
+		self.songFile = None
 		
 	def getColPosX(self, col):
 		return self.HUD_ARROW_START_POS[0] + (col * self.IMG_ARROW_SIZE[0]) + (col * self.ARROW_COLUMN_PAD)
@@ -431,9 +437,17 @@ class BPGameplayController(BPController):
 		for flasher in self.flashers: flasher.draw()
 
 	def start(self):
+		# Level data
+		self.context['level'] = 0
+		level = self.context['level']
+		self.timingFile = 'timing_%d.txt' % level
+		self.beatFile = 'beats_%d.txt' % level
+		self.bgFile = 'bg_%d.jpg' % level
+		self.songFile = 'song_%d.wav' % level
+		
 		# Load the arrow timing data
 		timingKeys = [self.ARROW_TIMING_KEY_DOWN, self.ARROW_TIMING_KEY_UP, self.ARROW_TIMING_KEY_KEY]
-		with open(self.ARROW_TIMING_FILE, 'r') as f:
+		with open(self.timingFile, 'r') as f:
 			for line in f:
 				timingValues = line.split('\t')
 				timingValues = [float(i) for i in timingValues]
@@ -442,12 +456,12 @@ class BPGameplayController(BPController):
 				self.arrowData.append(arrow)
 				
 		# Load the beat timings
-		with open(self.BEAT_TIMING_FILE, 'r') as f:
+		with open(self.beatFile, 'r') as f:
 			for line in f:
 				self.beats.append(float(line.split('\t')[0]))
 						
 		# Load the images
-		self.imgBG = pygame.image.load('bg_gameplay.jpg').convert()	
+		self.imgBG = pygame.image.load(self.bgFile).convert()	
 		self.imgHitFlasher = pygame.image.load('hit.png').convert_alpha()
 		self.imgMissFlasher = pygame.image.load('text_flasher_miss.png').convert_alpha()
 		for i in range(self.NUM_ARROW_DIRECTIONS):	# HUD arrows
@@ -466,6 +480,7 @@ class BPGameplayController(BPController):
 						pygame.image.load('arrow_%d_%d_%d.png' % (i, j, k)).convert_alpha())
 		
 		# Start the music
+		self.context['musicObj'] = pygame.mixer.Sound(self.songFile)
 		if self.context['musicEnabled'] == True:
 			self.context['musicObj'].play()
 		self.context['timeLevelStart'] = time.time()
@@ -769,14 +784,12 @@ def main():
 	bpContext['pygame'] = pygame
 	bpContext['FPS'] = 60 
 	bpContext['windowSize'] = (960, 540)
-	bpContext['musicFile'] = 'bubble_pop.wav'
 	bpContext['title'] = 'Bubble Pop!'
 	bpContext['musicEnabled'] = True
 	
 	bpContext['clockFPS'] = pygame.time.Clock()
 	bpContext['surfDisp'] = pygame.display.set_mode((bpContext['windowSize'][0], bpContext['windowSize'][1]))
-	bpContext['fontTitle'] = pygame.font.Font('freesansbold.ttf', 18)
-	bpContext['musicObj'] = pygame.mixer.Sound(bpContext['musicFile'])
+	#bpContext['fontTitle'] = pygame.font.Font('freesansbold.ttf', 18)
 
 	pygame.display.set_caption(bpContext['title'])
 	bpGame = BPGame(bpContext)
