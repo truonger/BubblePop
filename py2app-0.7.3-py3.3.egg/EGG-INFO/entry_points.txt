@@ -1,0 +1,18 @@
+[console_scripts]
+py2applet = py2app.script_py2applet:main
+
+[py2app.converter]
+datamodel = py2app.converters.coredata:convert_datamodel
+mappingmodel = py2app.converters.coredata:convert_mappingmodel
+xib = py2app.converters.nibfile:convert_xib
+
+[py2app.recipe]
+
+
+[distutils.setup_keywords]
+plugin = py2app.build_app:validate_target
+app = py2app.build_app:validate_target
+
+[distutils.commands]
+py2app = py2app.build_app:py2app
+
