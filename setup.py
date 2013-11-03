@@ -6,6 +6,14 @@ Usage:
 """
 
 from setuptools import setup
+import py2app
+from plistlib import Plist
+import os
+
+name = 'KPopStar!'
+version = '1.0.0'
+Icon =  "icon.icns"
+JPEG_ROOT = "/usr/local/lib"
 
 APP = ['bubblepop.py']
 DATA_FILES = [
@@ -65,11 +73,11 @@ DATA_FILES = [
 	'arrow_hud_flash_1.png',
 	'arrow_hud_flash_2.png',
 	'arrow_hud_flash_3.png',
-	'bg_gameplay.jpg',
-	'bg_start.jpg',
-	'bubble_pop.wav',
-	'bubble_pop_arrow_timings.txt',
-	'bubble_pop_beat.txt',
+	'bg_0.png',
+	'bg_start.png',
+	'song_0.ogg',
+	'timing_0.txt',
+	'beats_0.txt',
 	'hit.png',
 	'num_0.png',
 	'num_1.png',
@@ -87,9 +95,23 @@ DATA_FILES = [
 	'text_flasher_2.png',
 	'text_flasher_3.png',
 	'text_flasher_combo.png',
-	'text_flasher_miss.png']
-OPTIONS = {'argv_emulation': True}
-
+	'text_flasher_miss.png',
+	'icon.icns'
+]
+OPTIONS = {
+	'argv_emulation':True,
+	'iconfile':Icon,
+	'includes':['sys', 'time', 'math'],
+	'packages':['pygame'],
+	'frameworks':['SDL_image', 'SDL_mixer', 'SDL_ttf', 'SDL', 'smpeg', 'libpng'],
+	'site_packages':True,
+	'plist':{
+		'CFBundleName':name,
+		'CFBundleShortVersionString':version,     # must be  in X.X.X format
+		'CFBundleGetInfoString':str(name + " " + version),
+		'CFBundleExecutable':name
+	}
+}
 setup(
     app=APP,
     data_files=DATA_FILES,

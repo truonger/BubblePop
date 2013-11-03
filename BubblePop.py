@@ -14,9 +14,10 @@ from pygame.locals import *
 		11/02/13 -  8:00 am - 10:30 am (2.5 hrs)
 		11/02/13 -  1:00 pm -  4:30 pm (3.5 hrs)
 		11/02/13 -  6:30 pm -  1:30 am (7 hrs)
-		11/03/13 -  9:30 am -  ?
+		11/03/13 -  9:30 am - 11:30 am (2 hrs)
+		11/03/13 - 12:30 pm -     ?
 		
-		TOTAL  25 HRS
+		TOTAL  27 HRS
 """
 
 #----------------------------------------------------------
@@ -265,7 +266,7 @@ class BPLaunchController(BPController):
 		BPController.__init__(self, parent, context)
 		
 	def start(self):
-		startImg = pygame.image.load('bg_start.jpg').convert()			
+		startImg = pygame.image.load('bg_start.png').convert()			
 		self.context['surfDisp'].blit(startImg, (0, 0))
 		
 	def handleEvent(self, event):
@@ -442,8 +443,8 @@ class BPGameplayController(BPController):
 		level = self.context['level']
 		self.timingFile = 'timing_%d.txt' % level
 		self.beatFile = 'beats_%d.txt' % level
-		self.bgFile = 'bg_%d.jpg' % level
-		self.songFile = 'song_%d.wav' % level
+		self.bgFile = 'bg_%d.png' % level
+		self.songFile = 'song_%d.ogg' % level
 		
 		# Load the arrow timing data
 		timingKeys = [self.ARROW_TIMING_KEY_DOWN, self.ARROW_TIMING_KEY_UP, self.ARROW_TIMING_KEY_KEY]
@@ -784,7 +785,7 @@ def main():
 	bpContext['pygame'] = pygame
 	bpContext['FPS'] = 60 
 	bpContext['windowSize'] = (960, 540)
-	bpContext['title'] = 'Bubble Pop!'
+	bpContext['title'] = 'K-Pop Star!'
 	bpContext['musicEnabled'] = True
 	
 	bpContext['clockFPS'] = pygame.time.Clock()
