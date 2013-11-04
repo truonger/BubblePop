@@ -101,15 +101,18 @@ DATA_FILES = [
 OPTIONS = {
 	'argv_emulation':True,
 	'iconfile':Icon,
-	'includes':['sys', 'time', 'math'],
+	'includes':['sys', 'time', 'math', 'pygame'],
+	'resources':DATA_FILES,
 	'packages':['pygame'],
 	'frameworks':['SDL_image', 'SDL_mixer', 'SDL_ttf', 'SDL', 'smpeg', 'libpng'],
 	'site_packages':True,
+	'strip':False,
 	'plist':{
 		'CFBundleName':name,
 		'CFBundleShortVersionString':version,     # must be  in X.X.X format
 		'CFBundleGetInfoString':str(name + " " + version),
-		'CFBundleExecutable':name
+		'CFBundleExecutable':name,
+		'CFBundleIdentifier':'com.miketruong.kpopstar',
 	}
 }
 setup(
